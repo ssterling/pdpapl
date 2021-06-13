@@ -1,0 +1,29 @@
+-----------------
+pdpapl To-Do List
+-----------------
+
+=== Optimisation ===
+
+NOTE: terminal input/output at 9600 baud is, in fact, not a bottleneck
+
+- Fix the weird spaghetti mess in PDRW
+- Keep CURCR in a register, not memory
+	This could go one of two ways: either speed will *increase*
+	because the amount of times core must be accessed to read
+	CURCR is decreased, or speed will *decrease* because a new
+	register must be pushed/popped whenever used outside the
+	video processing subroutine.
+	Needs testing once enough frames of the final product are done
+	to be able to notice a difference.
+- Implement CLRSCR and HOMPOS as macros
+	May or may not actually increase speed; needs testing.
+- Generally optimise branching
+- Devise a more efficient UITOAB
+
+=== Compatibility ===
+
+- Possibly implement a substitute for ASH on systems lacking it
+
+=== Considered Harmful ===
+
+- Rid of local variables (if they're even a problem)

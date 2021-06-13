@@ -1,0 +1,30 @@
+--------------------
+Known bugs in pdpapl
+--------------------
+
+=== System clock lag ===
+
+pdpapl takes over complete control of the Line Time Clock during its
+run, which has the side effect of offsetting RT-11's system clock
+by exactly the program's execution time; this necessitates the manual
+setting of the system clock post-execution.
+
+If you have any idea how RT-11 works (I don't), please do submit a
+pull request, or send me the relevant part of a manual on interrupts.
+
+=== Latency in KWRTNE ===
+
+If the drawing of a single frame and setting of PFWAIT takes longer
+than the time between two executions of the `BICB #PFWAIT,PFLAGS' line
+in the KWRTNE subroutine, the drawing of the frame after said frame
+will be delayed till the next execution of said line.
+
+Explained visually:
+
+Draw time	|--- 0 ---|  |------- 1 -------|       |---- 2 ---| |--
+FPSLEN		|------------|------------|------------|------------|--
+PFWAIT set?	..........***..................********...........**...
+
+Despite its inclusion in this file, this is intentional design.
+I'd rather have a video that's on the beat and behind one or two frames
+than a video that's somewhat close to on-time but off-beat.

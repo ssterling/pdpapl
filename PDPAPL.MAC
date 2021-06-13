@@ -1,0 +1,622 @@
+; pdpapl -- Bad Apple for the PDP-11
+; Copyright 2021 Seth Price
+; All rights reserved.
+;
+; Permission is hereby granted, free of charge, to any person obtaining a copy
+; of this software and associated documentation files (the "Software"), to deal
+; in the Software without restriction, including without limitation the rights
+; to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+; copies of the Software, and to permit persons to whom the Software is
+; furnished to do so, subject to the following conditions:
+;
+; The above copyright notice and this permission notice shall be included in
+; all copies or substantial portions of the Software.
+;
+; THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+; IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+; FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+; AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+; LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+; OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+; SOFTWARE.
+
+	.TITLE	PDPAPL - BAD APPLE FOR PDP-11
+	.LIST
+
+	.MCALL	.EXIT
+
+;
+; PROGRAM CONFIGURATION
+;
+
+	; Supported terminal types (CHANGE ACCORDINGLY)
+	ANSI   = 0		; Generic "ANSI-compatible"
+	VT100  = 1		; DEC VT100 family
+	VT200  = 2		; DEC VT220 family and later
+	TRMTYP = ANSI
+
+	; Installed clock type (CHANGE ACCORDINGLY)
+	KW11L  = 0
+	KW11P  = 1		; If both are installed, KW11-P preferred
+	CLKTYP = KW11L
+
+;
+; STACK MACROS
+;
+
+;+
+; PUSHST
+; Push VAL onto the stack.
+;-
+.MACRO	PUSHST	VAL
+	MOV	VAL, -(SP)
+.ENDM
+
+;+
+; POPST
+; Pop a value off the stack into VAL.
+;-
+.MACRO	POPST	VAL
+	MOV	(SP)+, VAL
+.ENDM
+
+;
+; TERMINAL INPUT/OUTPUT CONSTANTS AND MACROS
+;
+
+	; Mnemonics for oft-used ASCII characters
+	NUL    = 0	
+	SO     = 16
+	SI     = 17
+	ESC    = 33
+	SPACE  = 40
+	SEMCOL = 73		; Semicolon
+	DEL    = 127
+
+;+
+; PRTCHR
+; One-line wrapper for `PRTCHX'.
+; NOTE: does not push/pop R0.
+;-
+.MACRO	PRTCHR	CHR
+	MOV	CHR, R0
+	CALL	PRTCHX
+.ENDM
+
+;+
+; PRTSTR
+; One-line wrapper for `PRTSTX'.
+; NOTE: does not push/pop R1.
+;-
+.MACRO	PRTSTR	ADDR
+	MOV	ADDR, R1
+	CALL	PRTSTX
+.ENDM
+
+;+
+; CSI
+; Prints Control Sequence Identifier for current terminal.
+;-
+.MACRO	CSI
+.IF EQ TRMTYP-VT200
+.IFT
+	PRTCHR	#233		; VT220 and above has a nifty one-character CSI
+.IFF
+	PRTCHR	#ESC
+	PRTCHR	#'[
+.ENDC
+.ENDM
+
+;+
+; CLRSCR
+; Erase screen contents.
+; NOTE: does not push/pop R0.
+;-
+.MACRO	CLRSCR
+	CSI
+	PRTCHR	#'2
+	PRTCHR	#'J
+.ENDM
+
+;+
+; HOMPOS
+; Move cursor to upper left corner of screen.
+;-
+.MACRO	HOMPOS
+	CSI
+	PRTCHR	#'H
+.ENDM
+
+;+
+; PXDW
+; Draws a "pixel" on the screen.
+; NOTE: does not push/pop R0.
+;-
+.MACRO	PXDW
+.IF GE TRMTYP-VT100
+.IFT
+	PRTCHR	#'a		; Box-drawing character in Special Graphics
+.IFF
+	PRTCHR	#'#		; We don't have double-width on anything below
+	PRTCHR	#'#		;  VT100('s capabilities), so print two chars
+.ENDC
+.ENDM
+
+;+
+; PXBL
+; Erases and/or skips a "pixel" on the screen.
+; NOTE: does not push/pop R0.
+;-
+.MACRO	PXBL
+	PRTCHR	#SPACE
+.IF LT TRMTYP-VT100
+	PRTCHR	#SPACE		; An extra one if no double-width
+.ENDC
+.ENDM
+
+;
+; OTHER MACROS
+;
+
+;+
+; PAUSE
+; One-line wrapper for `PAUSX'.
+; NOTE: does not push/pop R0, R1 or R2.
+;-
+.MACRO	PAUSE	LEN
+	MOV	LEN, R0
+	CALL	PAUSX
+.ENDM
+
+;
+; REGISTER MNEMONICS
+;
+
+	CIDX  = R3		; Number of crumbs read in current word
+	IDX   = R4		; Memory location of current word in VDATA
+	CURWD = R5		; Copy of current word in VDATA
+
+;
+; CONSTANTS
+;
+
+	; DL11 serial line memory locations
+	RCSR = 177560		; Receive control/status register
+	RBUF = 177562		; Receive buffer
+	XCSR = 177564		; Transfer control/status register
+	XBUF = 177566		; Transfer buffer
+
+	; KW11-L/P clock memory locations
+.IF EQ CLKTYP-KW11L
+	KVECT = 100		; Interrupt vector location
+	KCSR  = 177546		; Control/status register
+.ENDC
+.IF EQ CLKTYP-KW11P
+	KVECT = 104		; Interrupt vector location
+	KCSR  = 172570		; Control/status register
+	KCSB  = 172542		; Count set buffer
+	KCTR  = 172554		; Counter
+.ENDC
+
+	FPSLEN = ^D26		; Length of each frame in 1/60ths of a second
+				;  (approx. 26.087 at 138 BPM)
+	
+	; Video processing subroutine status flags
+	PFCMOV = ^B00000001	; Currently processing `MOV' command
+	PFCDRW = ^B00000010	;          ''          `DRW' command
+	PFCSUB = ^B00000100	;          ''          a subcommand
+	PFINVR = ^B01000000	; Reverse video is currently enabled on terminal
+	PFWAIT = ^B10000000	; Waiting till next frame begins to continue
+
+;
+; MAIN PROGRAM ROUTINE
+;
+
+START:	CLRSCR
+	HOMPOS
+	PRTSTR	#CPYRGT		; If someone makes a YouTube video of this
+				;  on real hardware, I at least want credit
+	PAUSE	#577		; Let copyright linger for the same reason
+
+INIVAR:	; Initialise variables
+.IF EQ CLKTYP-KW11L
+	CLRB	KWCNTR
+.ENDC
+	CLRB	PFLAGS
+	CLR	IDX
+	CLR	CURWD
+	; Fall through
+
+SETLTC:	; Set up Line Time Clock
+	; FIXME: somehow have this not affect system time (see `BUGS.TXT')
+	MOV	@#KVECT, KVCOLD	; Store address of old interrupt (if any)
+				;  to be restored after completion; otherwise
+				;  RT-11 will HALT somewhere for some reason
+	MOVB	@#KCSR, KCSOLD	; Store control/status register for same reason
+	MOV	#KWRTNE, KVECT	; Run `KWRTNE' subroutine everytime LTC fires
+.IF EQ CLKTYP-KW11L
+	MOV	#100, @#KCSR	; Enable interrupts
+.ENDC
+.IF EQ CLKTYP-KW11P
+	MOV	#FPSLEN, @#KCSB
+	MOV	#105, @#KCSR	; Enable interrupts + counter
+.ENDC
+	; Fall through
+
+SETTRM:	; Set up some optimal stuff on the terminal
+	CLRSCR			; Clear and go to top-left
+	HOMPOS
+	CSI			; Boldface (usually means brighter white)
+	PRTCHR	#'1
+	PRTCHR	#'m
+.IF NE TRMTYP-ANSI		; Only do the following on VT100 and up
+.IF GE TRMTYP-VT200
+	CSI			; Make cursor invisible (VT220 and up only)
+	PRTCHR	#'?
+	PRTCHR	#'2
+	PRTCHR	#'5
+	PRTCHR	#'l
+.ENDC
+	PRTCHR	#ESC		; Enable DEC Special Graphics
+	PRTCHR	#'(
+	PRTCHR	#'0
+	CLRSCR			; Set every line to double-width
+	HOMPOS
+	MOV	#^D24, R2
+10$:	PRTCHR	#ESC		; Set current line to double-width
+	PRTCHR	#'#
+	PRTCHR	#'6
+	DEC	R2
+	BEQ	90$		; If all lines are done, continue;
+	CSI			;  otherwise, move down one line
+	PRTCHR	#'1
+	PRTCHR	#'B
+	BR	10$
+90$:
+.ENDC
+	; Fall through
+
+PCINIT:	; Initialise video processing subroutine
+	MOV	#VDATA, IDX
+	MOV	#7, CIDX	; Hack to load first word/crumb
+	; Fall through
+
+NEXTCR:	; Put the next crumb from memory into the lowest two bits of CURCR
+	CMP	CIDX, #7	; If we've read all eight crumbs, load new word
+	BLT	10$		;  into CURWD; otherwise just load next crumb
+	MOV	(IDX)+, CURWD
+	CLR	CIDX
+	BR	20$		; Don't shift; newest crumb is already in
+				;  highest two bytes of CURWD
+10$:	ASH	#2, CURWD	; Move next crumb into highest two bits of CURWD
+	INC	CIDX
+20$:	MOV	CURWD, R0	; Put said crumb into lowest two bits of CURCR
+	ASH	#-16, R0
+	BIC	#177774, R0	; > tfw no logical shift
+	MOV	R0, CURCR
+DETFLG:	; If a command is in-progress (i.e. flag set), continue its processing
+	BITB	#PFCMOV, PFLAGS
+	BNE	PMOV		; Note to self: BNE after BITB means "if set"
+	BITB	#PFCDRW, PFLAGS
+	BNE	PDRW
+	BITB	#PFCSUB, PFLAGS
+	BEQ	PRCCMD		; PSUB is too far away to branch; needs JMP
+	JMP	PSUB
+PRCCMD:	; No flags set, so process current crumb as a command (see `CMDS.TXT')
+	CLRB	CMDIDX
+5$:	; NOP: Do nothing
+	CMP	CURCR, #0
+	BNE	10$
+	BR	NEXTCR
+10$:	; MOV: Move to X,Y position on screen
+	CMP	CURCR, #1
+	BNE	20$
+	CLR	XPOS		; Zero some variables
+	CLR	YPOS
+	BISB	#PFCMOV, PFLAGS
+	BR	NEXTCR
+20$:	; DRW: Draw pixels on screen
+	CMP	CURCR, #2
+	BNE	30$
+	CLR	PXLEFT		; Zero some variables
+	BISB	#PFCDRW, PFLAGS
+	BR	NEXTCR
+30$:	; SUB: Process a subcommand
+	BISB	#PFCSUB, PFLAGS
+	BR	NEXTCR
+
+PMOV:	; Process MOV command
+	CMPB	CMDIDX, #3	; 0 to 2 crumbs read: read X position
+	BGE	20$		; Otherwise: read Y position
+10$:	; Read in X position
+	ASL	XPOS		; Useless on first crumb, but takes less time
+	ASL	XPOS		;  than a conditional to check CIDX
+	ADD	CURCR, XPOS
+	INCB	CMDIDX
+	BR	NEXTCR
+20$:	; Read in Y position
+	ASL	YPOS		; Same as above
+	ASL	YPOS
+	ADD	CURCR, YPOS
+	INCB	CMDIDX
+	CMPB	CMDIDX, #6	; If we're done reading numbers, move cursor
+	BLT	NEXTCR
+30$:	; Move cursor
+	MOV	XPOS, R0
+	MOV	YPOS, R1
+	INC	R1		; VT100 starts counting at 1; we don't
+50$:	PUSHST	R1
+	MOV	#XSTR, R1	; Wonky but fast way to clear XSTR and YSTR
+	CLR	(R1)+
+	CLR	(R1)+
+	CLR	(R1)+
+	CLR	(R1)
+	MOV	#XSTR, R1
+.IF EQ TRMTYP-ANSI
+	ADD	R0, R0		; Pixel width = 2 chars w/o double width
+.ENDC
+	INC	R0		; Again, VT100 counts from 1
+	CALL	UITOAB
+	POPST	R0		; Shortcut for `POPST R1; MOV R1,R0'
+	MOV	#YSTR, R1
+	CALL	UITOAB
+	CSI
+	PRTSTR	#YSTR
+	PRTCHR	#SEMCOL
+	PRTSTR	#XSTR
+	PRTCHR	#'H
+	BICB	#PFCMOV, PFLAGS
+	JMP	NEXTCR		; Too far away now to branch; needs JMP
+
+PDRW:	; Process DRW command
+	CMPB	CMDIDX, #2	; 0-1 crumbs read: reading in pixel amount
+	BGE	10$		; Otherwise: reading pixels themselves
+5$:	; Read in number of pixels
+	ASL	PXLEFT		; Same as in MOV: useless, but faster
+	ASL	PXLEFT
+	ADD	CURCR, PXLEFT
+	INCB	CMDIDX
+	JMP	NEXTCR
+10$:	; Process the bitstream proper (crumb at a time)
+	; FIXME: make this not spaghetti
+	BIT	#^B10, CURCR
+	BEQ	15$
+	PXDW
+	BR	20$
+15$:	PXBL
+20$:	BIT	#^B01, CURCR
+	BEQ	25$
+	PXDW
+	BR	50$
+25$:	PXBL
+50$:	DEC	PXLEFT
+	BEQ	60$		; Clean up if no more pixels to draw
+	JMP	NEXTCR
+60$:	BICB	#PFCDRW, PFLAGS
+	JMP	NEXTCR
+
+PSUB:	; Process subcommand
+1$:	; END: End-of-frame
+	CMP	CURCR, #0
+	BNE	10$
+	BISB	#PFWAIT, PFLAGS
+5$:	BITB	#PFWAIT, PFLAGS	; Wait till flag is cleared by KWRTNE
+	BEQ	5$
+	BR	50$
+10$:	CMP	CURCR, #1
+	BNE	20$
+	CLRSCR
+	BR	50$
+20$:	CMP	CURCR, #2
+	BNE	DONE		; 3 is the only other possible value
+	CALL	INVSCR
+	; Fall through
+50$:	BICB	#PFCSUB, PFLAGS
+	JMP	NEXTCR
+
+DONE:	PAUSE	#4777		; Let last frame stay for a bit
+RSTLTC:	; Disable clock interrupt and restore old values
+	MOV	KVCOLD, @#KVECT
+	MOV	KCSOLD, @#KCSR
+.IF EQ CLKTYP-KW11P
+	MOV	KCBOLD, @#KCSB
+.ENDC
+
+RSTTRM:	; Reset any special settings that were activated (in reverse order)
+.IF NE TRMTYP-ANSI		; Only do the following on VT100 and up
+	MOV	#^D24, R2	; Set every line to single-width
+5$:	PRTCHR	#ESC		; Set current line to single-width
+	PRTCHR	#'#
+	PRTCHR	#'5
+	DEC	R2
+	BEQ	20$		; If all lines are done, continue;
+	CSI			;  otherwise, move down one line
+	PRTCHR	#'1
+	PRTCHR	#'B
+	BR	5$
+10$:	PRTCHR	#ESC		; Revert to normal ASCII
+	PRTCHR	#'(
+	PRTCHR	#'B
+.IF GE TRMTYP-VT200
+	CSI			; Make cursor visible again (VT220 and up only)
+	PRTCHR	#'?
+	PRTCHR	#'2
+	PRTCHR	#'5
+	PRTCHR	#'h
+.ENDC
+.ENDC
+	CSI			; Revert to non-bold
+	PRTCHR	#'m
+	; Fall through
+
+FINISH:	.EXIT			; Return control to RT-11
+
+;
+; TERMINAL INPUT/OUTPUT SUBROUTINES
+;
+
+;+
+; PRTCHX
+; Prints the ASCII character specified in R0 to the terminal.
+;-
+PRTCHX:	TSTB	@#XCSR
+	BPL	PRTCHX		; Wait for ready bit (7)
+	MOVB	R0, @#XBUF
+	RETURN
+
+;+
+; PRTSTX
+; Prints a NUL-terminated string to the terminal starting at the
+; address specified in R1.
+;-
+PRTSTX:	PUSHST	R0
+10$:	MOVB	(R1)+, R0
+	BEQ	20$		; If character is NUL, end
+	CALL	PRTCHX
+	BR	10$		; Loop till NUL is found
+20$:	POPST	R0
+	RETURN
+
+;+
+; INVSCR
+; Toggle reverse video.
+;-
+INVSCR:	CSI
+	PRTCHR	#'?
+	PRTCHR	#'5
+	BITB	#PFINVR, PFLAGS	; If currently inverted, put back to normal
+	BNE	10$		; Note to self: BNE in this context = "if set"
+	PRTCHR	#'h
+	BISB	#PFINVR, PFLAGS
+	RETURN
+10$:	PRTCHR	#'l
+	BICB	#PFINVR, PFLAGS
+	RETURN
+
+;
+; OTHER SUBROUTINES
+;
+
+;+
+; UITOAB
+; Convert the one-byte unsigned integer in R0 to a NUL-terminated ASCII string
+; in the four-byte buffer located at the address provided in R1.
+;-
+UITOAB:	CMPB	#0, R0		; Save time and skip processing if just 0
+	BNE	10$
+	MOVB	#'0, (R1)+
+	MOVB	#NUL, (R1)
+	RETURN
+10$:	PUSHST	R2		; We'll be using R2 for temp string address
+	PUSHST	R3		;  and R3 for results of various calculations
+	BR	37$
+30$:	.BLKB	4		; Temporary backwards output string
+37$:	MOV	#30$, R2
+	CLR	(R2)+		; Wonky but fast way to clear 30$
+	CLR	(R2)
+	MOV	#30$, R2
+40$:	MOVB	R0, R3		; Simplified: R3 <- R0 % 10 (preserves R0)
+41$:	CMPB	R3, #^D10
+	BLT	45$		; Can't divide any more; R3 is result
+	SUB	#^D10, R3
+	BR	41$
+45$:	ADD	#'0, R3		; Turns number 0-9 into respective ASCII char
+	MOVB	R3, (R2)+	;  & puts it in the temp (backwards) string
+	CLRB	R3
+50$:	CMPB	R0, #^D10	; Divide original number by 10 in-place
+	BLT	52$
+	SUB	#^D10, R0
+	INCB	R3		; R3 is quotient
+	BR	50$
+52$:	MOVB	R3, R0
+	CMPB	#0, R0		; If 0 at this point, that was the last digit;
+	BEQ	85$		;  we're done and it's time to finish up
+	BR	40$		;  (otherwise keep looping through remaining)
+85$:	MOVB	-(R2), (R1)+	; Copy char from temp to final and advance
+91$:	CMP	#30$, R2	; If we're at the address of the first byte
+	BGT	95$		;  of the temp string, we're done
+	BR	85$
+95$:	CLRB	(R1)		; Set to NUL (end of string)
+	POPST	R3
+	POPST	R2
+	RETURN
+;+
+; PAUSX
+; Waits a system-dependent amount of time proportional to the integer in R0.
+; Very imprecise; primarily meant for easy breakpoints when debugging in SimH.
+; NOTE: uses and does not push/pop R1 or R2.
+;-
+PAUSX:	MOV	#177777, R2
+10$:	MOV	R0, R1
+20$:	SOB	R1, 20$
+	SOB	R2, 10$
+	RETURN
+
+;+
+; KWRTNE
+; Interrupt routine for the KW11-L or KW11-P clock.
+; Allows the video processing routine to move onto drawing the next frame
+; by clearing the `FWAIT' bit in the video processor flags.
+;-
+KWRTNE:
+.IF EQ CLKTYP-KW11L
+	DECB	KWCNTR
+	BEQ	10$		; If zero, we've reached time to change frames
+	RTI
+10$:	MOVB	#FPSLEN, KWCNTR
+	BICB	#PFWAIT, PFLAGS
+	RTI
+.ENDC
+.IF EQ CLKTYP-KW11P
+	BICB	#PFWAIT, PFLAGS
+	RTI
+.ENDC
+
+;
+; ASCII STRINGS
+;
+
+CPYRGT:	.ASCIZ	/pdpapl - Copyright 2021 Seth Price/
+
+;
+; VARIABLES
+;
+
+PFLAGS:	.BLKB	1		; Video processor flags (see CONSTANTS)
+CMDIDX:	.BLKB	1		; Number of crumbs read since command enabled
+.IF EQ CLKTYP-KW11L
+KWCNTR:	.BLKB	1		; Counter for LTC interrupt routine
+.ENDC
+	.EVEN			; Yes, this `.EVEN' is in the right place.
+XSTR:	.BLKB	4		; `x' position of MOV command destination as
+YSTR:	.BLKB	4		; `y'     reverse NUL-terminated ASCII string
+
+	; Variables that would more logically be bytes but have to be words
+	;  because `ADD' doesn't like byte destinations or something like that
+XPOS:	.BLKW	1		; `x' position of MOV command destination
+YPOS:	.BLKW	1		; `y' position of MOV command destination
+CURCR:	.BLKW	1		; Copy of current crumb
+PXLEFT:	.BLKW	1		; Number of pixels left to be drawn by DRW cmd.
+
+KVCOLD:	.BLKW	1		; Value of KVECT prior to LTC setup
+KCSOLD:	.BLKW	1		; Value of KCSR		 ''
+.IF EQ CLKTYP-KW11P
+KCBOLD:	.BLKW	1		; Value of KCSB		 ''
+.ENDC
+
+;
+; VIDEO DATA
+;
+
+; NOTE: must be generated by `pdpaplas'; see `README.TXT' for info.
+.INCLUDE /VDATA/
+
+;
+; --- END ---
+;
+
+.END START
+
+; I used ked for initial development
+; but eventually got tired of it
+; vim: set syn=macro11:

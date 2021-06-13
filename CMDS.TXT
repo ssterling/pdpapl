@@ -1,0 +1,45 @@
+-------------------------------
+pdpapl video processor commands
+-------------------------------
+
+=== 0: NOP ===
+
+Do nothing.
+
+Format:	0
+
+=== 1: MOV ===
+
+Move to the X,Y pixel position on the terminal screen.
+
+Format:	1XxxYyy
+Xxx:	Target column as a three-crumb unsigned integer.
+Yyy:	Target row as a three-crumb unsigned integer.
+
+=== 2: DRW ===
+
+Draw a sequence of pixels to the terminal starting at the
+current cursor position.
+
+NOTE:	Take caution to avoid going past column 39; this will cause
+	a newline to occur and (amongst other things) double-width
+	settings will be reset.
+
+Format:	2NnPpp...
+Nn:	The number of following crumbs (Ppp...) containing pixel data
+	as a two-crumb unsigned integer.
+Ppp...:	A stream of bits, where 1 represents a pixel to be drawn,
+	and 0 represents a pixel to be erased.
+
+=== 3: SUB ===
+
+Initiate a subcommand.
+
+Format:	3S
+S:	Subcommand ID, as signified below:
+
+0  END	Wait and do nothing till the Line Time Clock signals the
+	next frame is to begin processing.
+1  CLR	Clear the screen to the background colour.
+2  INV	Toggle reverse video.
+3  EOF	Quit.
