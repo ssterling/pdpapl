@@ -15,8 +15,6 @@ NOTE: terminal input/output at 9600 baud is, in fact, not a bottleneck
 	video processing subroutine.
 	Needs testing once enough frames of the final product are done
 	to be able to notice a difference.
-- Implement CLRSCR and HOMPOS as macros
-	May or may not actually increase speed; needs testing.
 - Generally optimise branching
 - Devise a more efficient UITOAB
 
