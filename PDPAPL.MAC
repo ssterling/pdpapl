@@ -356,10 +356,10 @@ PMOV:	; Process MOV command
 	ADD	R0, R0		; Pixel width = 2 chars w/o double width
 .ENDC
 	INC	R0		; Again, VT100 counts from 1
-	CALL	UITOAB
+	CALL	UITOA
 	POPST	R0		; Shortcut for `POPST R1; MOV R1,R0'
 	MOV	#YSTR, R1
-	CALL	UITOAB
+	CALL	UITOA
 	CSI
 	PRTSTR	#YSTR
 	PRTCHR	#SEMCOL
@@ -498,48 +498,21 @@ INVSCR:	CSI
 ;
 
 ;+
-; UITOAB
-; Convert the one-byte unsigned integer in R0 to a NUL-terminated ASCII string
+; UITOA
+; Convert the unsigned integer in R0 to a NUL-terminated ASCII string
 ; in the four-byte buffer located at the address provided in R1.
 ;-
-UITOAB:	CMPB	#0, R0		; Save time and skip processing if just 0
-	BNE	10$
-	MOVB	#'0, (R1)+
-	MOVB	#NUL, (R1)
+UITOA:	CMP	R0, #^D79	; Gracefully fail by returning `0' if argument
+	BLE	10$		;  is over 79 (only theoretically possible in
+	MOVB	#'0, (R1)+	;  hand-coded VDATA not produced by pdpaplasm)
+	CLRB	(R1)
 	RETURN
-10$:	PUSHST	R2		; We'll be using R2 for temp string address
-	PUSHST	R3		;  and R3 for results of various calculations
-	BR	37$
-30$:	.BLKB	4		; Temporary backwards output string
-37$:	MOV	#30$, R2
-	CLR	(R2)+		; Wonky but fast way to clear 30$
-	CLR	(R2)
-	MOV	#30$, R2
-40$:	MOVB	R0, R3		; Simplified: R3 <- R0 % 10 (preserves R0)
-41$:	CMPB	R3, #^D10
-	BLT	45$		; Can't divide any more; R3 is result
-	SUB	#^D10, R3
-	BR	41$
-45$:	ADD	#'0, R3		; Turns number 0-9 into respective ASCII char
-	MOVB	R3, (R2)+	;  & puts it in the temp (backwards) string
-	CLRB	R3
-50$:	CMPB	R0, #^D10	; Divide original number by 10 in-place
-	BLT	52$
-	SUB	#^D10, R0
-	INCB	R3		; R3 is quotient
-	BR	50$
-52$:	MOVB	R3, R0
-	CMPB	#0, R0		; If 0 at this point, that was the last digit;
-	BEQ	85$		;  we're done and it's time to finish up
-	BR	40$		;  (otherwise keep looping through remaining)
-85$:	MOVB	-(R2), (R1)+	; Copy char from temp to final and advance
-91$:	CMP	#30$, R2	; If we're at the address of the first byte
-	BGT	95$		;  of the temp string, we're done
-	BR	85$
-95$:	CLRB	(R1)		; Set to NUL (end of string)
-	POPST	R3
-	POPST	R2
+10$:	ADD	R0, R0		; R0 <- address of table lookup result
+	ADD	#INTSTR, R0	;  (accounting for two-byte string length)
+	MOV	(R0), (R1)+	; Copy the result to the address in R1
+	CLR	(R1)		; Postfix NUL (actually, two NULs)
 	RETURN
+
 ;+
 ; PAUSX
 ; Waits a system-dependent amount of time proportional to the integer in R0.
@@ -577,6 +550,90 @@ KWRTNE:
 ;
 
 CPYRGT:	.ASCIZ	/pdpapl - Copyright 2021 Seth Price/
+
+	.EVEN			; Required for UITOA to work
+INTSTR:	; Lookup table for UITOA
+	.ASCII	/0/<0>		; Extra NULs so every string is two bytes
+	.ASCII	/1/<0>
+	.ASCII	/2/<0>
+	.ASCII	/3/<0>
+	.ASCII	/4/<0>
+	.ASCII	/5/<0>
+	.ASCII	/6/<0>
+	.ASCII	/7/<0>
+	.ASCII	/8/<0>
+	.ASCII	/9/<0>
+	.ASCII	/10/
+	.ASCII	/11/
+	.ASCII	/12/
+	.ASCII	/13/
+	.ASCII	/14/
+	.ASCII	/15/
+	.ASCII	/16/
+	.ASCII	/17/
+	.ASCII	/18/
+	.ASCII	/19/
+	.ASCII	/20/
+	.ASCII	/21/
+	.ASCII	/22/
+	.ASCII	/23/
+	.ASCII	/24/
+	.ASCII	/25/
+	.ASCII	/26/
+	.ASCII	/27/
+	.ASCII	/28/
+	.ASCII	/29/
+	.ASCII	/30/
+	.ASCII	/31/
+	.ASCII	/32/
+	.ASCII	/33/
+	.ASCII	/34/
+	.ASCII	/35/
+	.ASCII	/36/
+	.ASCII	/37/
+	.ASCII	/38/
+	.ASCII	/39/
+	.ASCII	/40/
+	.ASCII	/41/
+	.ASCII	/42/
+	.ASCII	/43/
+	.ASCII	/44/
+	.ASCII	/45/
+	.ASCII	/46/
+	.ASCII	/47/
+	.ASCII	/48/
+	.ASCII	/49/
+	.ASCII	/50/
+	.ASCII	/51/
+	.ASCII	/52/
+	.ASCII	/53/
+	.ASCII	/54/
+	.ASCII	/55/
+	.ASCII	/56/
+	.ASCII	/57/
+	.ASCII	/58/
+	.ASCII	/59/
+	.ASCII	/60/
+	.ASCII	/61/
+	.ASCII	/62/
+	.ASCII	/63/
+	.ASCII	/64/
+	.ASCII	/65/
+	.ASCII	/66/
+	.ASCII	/67/
+	.ASCII	/68/
+	.ASCII	/69/
+	.ASCII	/70/
+	.ASCII	/71/
+	.ASCII	/72/
+	.ASCII	/73/
+	.ASCII	/74/
+	.ASCII	/75/
+	.ASCII	/76/
+	.ASCII	/77/
+	.ASCII	/78/
+	.ASCII	/79/
+	.EVEN			; Just to be safe, I guess
 
 ;
 ; VARIABLES

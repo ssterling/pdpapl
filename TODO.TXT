@@ -16,7 +16,6 @@ NOTE: terminal input/output at 9600 baud is, in fact, not a bottleneck
 	Needs testing once enough frames of the final product are done
 	to be able to notice a difference.
 - Generally optimise branching
-- Devise a more efficient UITOAB
 
 === Compatibility ===
 
