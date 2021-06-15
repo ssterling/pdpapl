@@ -22,8 +22,8 @@ For those somehow unfamiliar: <https://youtu.be/FtutLA63Cp8>.
 
 === Compilation ===
 
-An RX02 diskette image can be obtained from the author's website:
-<https://www.ssterling.net/comp/pdpapl/files/> (select latest version).
+A single-density RX01-format diskette image can be obtained from
+the author's website: <https://www.ssterling.net/comp/pdpapl/files/>.
 This image is ready for use in a simulator; as of writing, it is not
 known whether this software can run on original PDP-11 hardware.
 
