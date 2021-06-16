@@ -429,7 +429,7 @@ RSTTRM:	; Reset any special settings that were activated (in reverse order)
 	PRTCHR	#'#
 	PRTCHR	#'5
 	DEC	R2
-	BEQ	20$		; If all lines are done, continue;
+	BEQ	10$		; If all lines are done, continue;
 	CSI			;  otherwise, move down one line
 	PRTCHR	#'1
 	PRTCHR	#'B
