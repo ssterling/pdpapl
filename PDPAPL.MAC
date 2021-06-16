@@ -220,7 +220,7 @@ START:	CLRSCR
 
 INIVAR:	; Initialise variables
 .IF EQ CLKTYP-KW11L
-	CLRB	KWCNTR
+	MOVB	#FPSLEN, KWCNTR
 .ENDC
 	CLRB	PFLAGS
 	CLR	IDX
@@ -232,8 +232,8 @@ SETLTC:	; Set up Line Time Clock
 	MOV	@#KVECT, KVCOLD	; Store address of old interrupt (if any)
 				;  to be restored after completion; otherwise
 				;  RT-11 will HALT somewhere for some reason
-	MOVB	@#KCSR, KCSOLD	; Store control/status register for same reason
-	MOV	#KWRTNE, KVECT	; Run `KWRTNE' subroutine everytime LTC fires
+	MOV	@#KCSR, KCSOLD	; Store control/status register for same reason
+	MOV	#KWRTNE, @#KVECT; Run `KWRTNE' subroutine everytime LTC fires
 .IF EQ CLKTYP-KW11L
 	MOV	#100, @#KCSR	; Enable interrupts
 .ENDC
@@ -401,7 +401,7 @@ PSUB:	; Process subcommand
 	BNE	10$
 	BISB	#PFWAIT, PFLAGS
 5$:	BITB	#PFWAIT, PFLAGS	; Wait till flag is cleared by KWRTNE
-	BEQ	5$
+	BNE	5$
 	BR	50$
 10$:	CMP	CURCR, #1
 	BNE	20$
