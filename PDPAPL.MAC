@@ -172,6 +172,7 @@
 ; REGISTER MNEMONICS
 ;
 
+	CURCR = R2		; Copy of current crumb
 	CIDX  = R3		; Number of crumbs read in current word
 	IDX   = R4		; Memory location of current word in VDATA
 	CURWD = R5		; Copy of current word in VDATA
@@ -290,10 +291,8 @@ NEXTCR:	; Put the next crumb from memory into the lowest two bits of CURCR
 				;  highest two bytes of CURWD
 10$:	ASH	#2, CURWD	; Move next crumb into highest two bits of CURWD
 	INC	CIDX
-20$:	MOV	CURWD, R0	; Put said crumb into lowest two bits of CURCR
-	ASH	#-16, R0
-	BIC	#177774, R0	; > tfw no logical shift
-	MOV	R0, CURCR
+20$:	ASH	#-16, CURCR	; Put said crumb into lowest two bits of CURCR
+	BIC	#177774, CURCR	; > tfw no logical shift
 DETFLG:	; If a command is in-progress (i.e. flag set), continue its processing
 	BITB	#PFCMOV, PFLAGS
 	BNE	PMOV		; Note to self: BNE after BITB means "if set"
@@ -304,10 +303,6 @@ DETFLG:	; If a command is in-progress (i.e. flag set), continue its processing
 	JMP	PSUB
 PRCCMD:	; No flags set, so process current crumb as a command (see `CMDS.TXT')
 	CLRB	CMDIDX
-5$:	; NOP: Do nothing
-	CMP	CURCR, #0
-	BNE	10$
-	BR	NEXTCR
 10$:	; MOV: Move to X,Y position on screen
 	CMP	CURCR, #1
 	BNE	20$
@@ -322,6 +317,8 @@ PRCCMD:	; No flags set, so process current crumb as a command (see `CMDS.TXT')
 	BISB	#PFCDRW, PFLAGS
 	BR	NEXTCR
 30$:	; SUB: Process a subcommand
+	CMP	CURCR, #3
+	BNE	NEXTCR		; All NOP (0) does is branch to NEXTCR anyway
 	BISB	#PFCSUB, PFLAGS
 	BR	NEXTCR
 
@@ -652,7 +649,6 @@ YSTR:	.BLKB	4		; `y'     reverse NUL-terminated ASCII string
 	;  because `ADD' doesn't like byte destinations or something like that
 XPOS:	.BLKW	1		; `x' position of MOV command destination
 YPOS:	.BLKW	1		; `y' position of MOV command destination
-CURCR:	.BLKW	1		; Copy of current crumb
 PXLEFT:	.BLKW	1		; Number of pixels left to be drawn by DRW cmd.
 
 KVCOLD:	.BLKW	1		; Value of KVECT prior to LTC setup
