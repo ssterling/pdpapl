@@ -499,12 +499,7 @@ INVSCR:	CSI
 ; Convert the unsigned integer in R0 to a NUL-terminated ASCII string
 ; in the four-byte buffer located at the address provided in R1.
 ;-
-UITOA:	CMP	R0, #^D79	; Gracefully fail by returning `0' if argument
-	BLE	10$		;  is over 79 (only theoretically possible in
-	MOVB	#'0, (R1)+	;  hand-coded VDATA not produced by pdpaplasm)
-	CLRB	(R1)
-	RETURN
-10$:	ADD	R0, R0		; R0 <- address of table lookup result
+UITOA:	ADD	R0, R0		; R0 <- address of table lookup result
 	ADD	#INTSTR, R0	;  (accounting for two-byte string length)
 	MOV	(R0), (R1)+	; Copy the result to the address in R1
 	CLR	(R1)		; Postfix NUL (actually, two NULs)
