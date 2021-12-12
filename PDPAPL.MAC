@@ -86,7 +86,7 @@
 ;+
 ; PRTSTR
 ; One-line wrapper for `PRTSTX'.
-; NOTE: does not push/pop R1.
+; NOTE: does not push/pop R0 or R1.
 ;-
 .MACRO	PRTSTR	ADDR
 	MOV	ADDR, R1
@@ -465,14 +465,13 @@ PRTCHX:	TSTB	@#XCSR
 ; PRTSTX
 ; Prints a NUL-terminated string to the terminal starting at the
 ; address specified in R1.
+; NOTE: uses and does not push/pop R0.
 ;-
-PRTSTX:	PUSHST	R0
-10$:	MOVB	(R1)+, R0
+PRTSTX:	MOVB	(R1)+, R0
 	BEQ	20$		; If character is NUL, end
 	CALL	PRTCHX
-	BR	10$		; Loop till NUL is found
-20$:	POPST	R0
-	RETURN
+	BR	PRTSTX		; Loop till NUL is found
+20$:	RETURN
 
 ;+
 ; INVSCR
