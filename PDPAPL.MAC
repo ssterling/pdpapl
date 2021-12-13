@@ -303,6 +303,7 @@ DETFLG:	; If a command is in-progress (i.e. flag set), continue its processing
 	JMP	PSUB
 PRCCMD:	; No flags set, so process current crumb as a command (see `CMDS.TXT')
 	CLRB	CMDIDX
+	; NOTE: NOP (0) is handled down at 30$ to save a few cycles
 10$:	; MOV: Move to X,Y position on screen
 	CMP	CURCR, #1
 	BNE	20$
