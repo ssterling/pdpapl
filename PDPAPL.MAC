@@ -291,7 +291,8 @@ NEXTCR:	; Put the next crumb from memory into the lowest two bits of CURCR
 				;  highest two bytes of CURWD
 10$:	ASH	#2, CURWD	; Move next crumb into highest two bits of CURWD
 	INC	CIDX
-20$:	ASH	#-16, CURCR	; Put said crumb into lowest two bits of CURCR
+20$:	MOV	CURWD, CURCR	; Put said crumb into lowest two bits of CURCR
+	ASH	#-16, CURCR
 	BIC	#177774, CURCR	; > tfw no logical shift
 DETFLG:	; If a command is in-progress (i.e. flag set), continue its processing
 	BITB	#PFCMOV, PFLAGS
